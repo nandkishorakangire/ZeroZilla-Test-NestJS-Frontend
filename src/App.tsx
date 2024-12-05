@@ -7,13 +7,13 @@ const App: React.FC = () => {
   const [textBlob, setTextBlob] = useState('');
   const [sentenceCount, setSentenceCount] = useState(4);
   const [results, setResults] = useState<{ group: string; summary: string }[]>([]);
-  const [isFetchingData, setIsFetchingData] = useState(false)
+  const [isFetchingData, setIsFetchingData] = useState(false);
 
   const handleSummarize = async () => {
     try {
       if (!textBlob) return;
       setIsFetchingData(true)
-      const response = await axios.post('http://localhost:8080/api/v1/summarize', {
+      const response = await axios.post('https://zerozilla-test-nestjs-backend.onrender.com/api/v1/summarize', {
         text: textBlob,
         sentencesPerGroup: sentenceCount,
       });
@@ -66,7 +66,7 @@ const App: React.FC = () => {
           {results.map((res, idx) => (
             <div key={idx} className="mb-2">
               <strong>Summary {idx + 1}:</strong>
-              <p>{res.summary}</p>
+              <p>{typeof res.summary === 'object' ? JSON.stringify(res.summary) : res.summary}</p>
             </div>
           ))}
         </div>
