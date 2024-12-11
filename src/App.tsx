@@ -1,22 +1,55 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import axios from "axios";
 
 import "./App.css";
 import withReactContent from "sweetalert2-react-content";
 import Swal from "sweetalert2";
+import { io, Socket } from "socket.io-client";
 
 const App: React.FC = () => {
   const [textBlob, setTextBlob] = useState<string>();
   const [sentenceCount, setSentenceCount] = useState<"" | number>(4);
-  const [results, setResults] = useState<{ group: string; summary: string }[]>(
-    []
-  );
+  const [results, setResults] = useState<
+    { group: string; summary: string; error?: any }[]
+  >([]);
   const [isFetchingData, setIsFetchingData] = useState(false);
   const [pagination, setPagination] = useState({
     offset: 0,
     limit: 10,
     total: 0,
   });
+  const [socket, setSocket] = useState<Socket | null>(null);
+
+  useEffect(() => {
+    const socketInstance = io(process.env.REACT_APP_SOCKET_URI, {
+      autoConnect: false,
+    });
+
+    socketInstance.on("connect", () => {
+      console.log("WebSocket connected");
+    });
+
+    socketInstance.on("summary", (data) => {
+      console.log("summary data:", data);
+      setResults((prev) => [...prev, data]);
+      setPagination((prev) => ({
+        ...prev,
+        total: prev.total + 1,
+      }));
+      setIsFetchingData(false);
+    });
+
+    socketInstance.on("error", (error) => {
+      console.error("Error summarizing text:", error);
+      showSwal("Error", "An error occurred while summarizing the text.");
+    });
+
+    setSocket(socketInstance);
+
+    return () => {
+      socketInstance.disconnect();
+    };
+  }, []);
 
   const showSwal = (title: string, text: string) => {
     withReactContent(Swal).fire({
@@ -30,31 +63,19 @@ const App: React.FC = () => {
     try {
       if (!textBlob) return;
       setIsFetchingData(true);
-      const response = await axios.post(
-        `${process.env.REACT_APP_API_URI}/api/v1/summarize`,
-        {
-          text: textBlob,
-          sentencesPerGroup: +sentenceCount || 0,
-        }
-      );
-      if (response.status === 201) {
-        setResults(response.data);
-        setPagination((prev) => ({
-          ...prev,
-          total: response.data?.length || 0,
-        }));
+      if (socket?.connected) {
+        socket.disconnect();
+        setResults([]);
+        setPagination((prev) => ({ ...prev, offset: 0, total: 0 }));
       }
+      socket?.connect();
+      socket?.emit("summarize", {
+        text: textBlob,
+        sentencesPerGroup: +sentenceCount || 0,
+      });
     } catch (error: unknown) {
-      if (axios.isAxiosError(error)) {
-        console.error(
-          "Error summarizing text:",
-          error.response ? error.response.data : error.message
-        );
-      } else {
-        console.error("Unexpected error:", error);
-      }
+      console.error("Unexpected error:", error);
       showSwal("Error", "An error occurred while summarizing the text.");
-    } finally {
       setIsFetchingData(false);
     }
   };
@@ -146,7 +167,11 @@ const App: React.FC = () => {
               >
                 <strong>Summary {pagination.offset + idx + 1}:</strong>
                 <p>
-                  {typeof res.summary === "object"
+                  {res?.error
+                    ? res.error?.status ||
+                      res.error?.data?.message ||
+                      JSON.stringify(res.error, null, 2)
+                    : typeof res.summary === "object"
                     ? JSON.stringify(res.summary, null, 2)
                     : res.summary}
                 </p>
