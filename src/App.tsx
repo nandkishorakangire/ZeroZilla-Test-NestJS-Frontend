@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
 
 import "./App.css";
 import withReactContent from "sweetalert2-react-content";
@@ -9,6 +8,9 @@ import { io, Socket } from "socket.io-client";
 const App: React.FC = () => {
   const [textBlob, setTextBlob] = useState<string>();
   const [sentenceCount, setSentenceCount] = useState<"" | number>(4);
+  const [showingResults, setShowingResults] = useState<
+    { group: string; summary: string; error?: any }[]
+  >([]);
   const [results, setResults] = useState<
     { group: string; summary: string; error?: any }[]
   >([]);
@@ -30,11 +32,25 @@ const App: React.FC = () => {
     });
 
     socketInstance.on("summary", (data) => {
-      console.log("summary data:", data);
-      setResults((prev) => [...prev, data]);
+      if (data?.error) {
+        showSwal(
+          "Error",
+          data?.error?.message ||
+            "An error occurred while summarizing the text."
+        );
+        return;
+      }
+      setResults((prev) => {
+        if (prev?.length) {
+          prev = [...prev, ...(data?.result || [])];
+        } else {
+          prev = data?.result || [];
+        }
+        return prev;
+      });
       setPagination((prev) => ({
         ...prev,
-        total: prev.total + 1,
+        total: prev.total + (data?.result?.length || 0),
       }));
       setIsFetchingData(false);
     });
@@ -51,6 +67,12 @@ const App: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (results.length && !showingResults?.length) {
+      setShowingResults([...(results.slice(0, 10) || [])]);
+    }
+  }, [results, showingResults]);
+
   const showSwal = (title: string, text: string) => {
     withReactContent(Swal).fire({
       title: <i>{title}</i>,
@@ -66,6 +88,7 @@ const App: React.FC = () => {
       if (socket?.connected) {
         socket.disconnect();
         setResults([]);
+        setShowingResults([]);
         setPagination((prev) => ({ ...prev, offset: 0, total: 0 }));
       }
       socket?.connect();
@@ -148,36 +171,37 @@ const App: React.FC = () => {
           Summaries
         </div>
         {/* Column 1: Original Text Groups */}
-        {results
-          .slice(pagination.offset, pagination.offset + pagination.limit)
-          .map((res, idx) => (
-            <>
-              <div key={"Group" + idx} className="p-2 border-b border-gray-400">
-                <strong>Group {pagination.offset + idx + 1}:</strong>
-                <p
-                  className="hyphens-manual break-words"
-                  style={{ wordBreak: "break-word" }}
-                >
-                  {res.group}
-                </p>
-              </div>
-              <div
-                key={"Summary" + idx}
-                className="p-2 border-b border-gray-400"
+        {showingResults.map((res, idx) => (
+          <>
+            <div
+              key={"Group" + pagination.offset + idx}
+              className="p-2 border-b border-gray-400"
+            >
+              <strong>Group {pagination.offset + idx + 1}:</strong>
+              <p
+                className="hyphens-manual break-words"
+                style={{ wordBreak: "break-word" }}
               >
-                <strong>Summary {pagination.offset + idx + 1}:</strong>
-                <p>
-                  {res?.error
-                    ? res.error?.status ||
-                      res.error?.data?.message ||
-                      JSON.stringify(res.error, null, 2)
-                    : typeof res.summary === "object"
-                    ? JSON.stringify(res.summary, null, 2)
-                    : res.summary}
-                </p>
-              </div>
-            </>
-          ))}
+                {res.group}
+              </p>
+            </div>
+            <div
+              key={"Summary" + pagination.offset + idx}
+              className="p-2 border-b border-gray-400"
+            >
+              <strong>Summary {pagination.offset + idx + 1}:</strong>
+              <p>
+                {res?.error
+                  ? res.error?.status ||
+                    res.error?.data?.message ||
+                    JSON.stringify(res.error, null, 2)
+                  : typeof res.summary === "object"
+                  ? JSON.stringify(res.summary, null, 2)
+                  : res.summary}
+              </p>
+            </div>
+          </>
+        ))}
       </div>
       {/* Pagination */}
       {pagination.total && pagination.total > pagination.limit ? (
@@ -187,10 +211,18 @@ const App: React.FC = () => {
               pagination.offset ? "bg-blue-500" : "bg-gray-500"
             } w-20 text-white p-2 rounded flex flex-row justify-center items-center`}
             onClick={() => {
-              setPagination((prev) => ({
-                ...prev,
-                offset: prev.offset ? prev.offset - prev.limit : prev.offset,
-              }));
+              setPagination((prev) => {
+                const offset = prev.offset
+                  ? prev.offset - prev.limit
+                  : prev.offset;
+                setShowingResults([
+                  ...results.slice(offset, offset + prev.limit),
+                ]);
+                return {
+                  ...prev,
+                  offset,
+                };
+              });
             }}
           >
             <span>Prev</span>
@@ -202,13 +234,19 @@ const App: React.FC = () => {
                 : "bg-gray-500"
             } w-20 text-white p-2 rounded flex flex-row justify-center items-center`}
             onClick={() => {
-              setPagination((prev) => ({
-                ...prev,
-                offset:
+              setPagination((prev) => {
+                const offset =
                   prev.offset + prev.limit < prev.total
                     ? prev.offset + prev.limit
-                    : prev.offset,
-              }));
+                    : prev.offset;
+                setShowingResults([
+                  ...results.slice(offset, offset + prev.limit),
+                ]);
+                return {
+                  ...prev,
+                  offset,
+                };
+              });
             }}
           >
             <span>Next</span>
